@@ -6,7 +6,6 @@ import (
 
 	"github.com/slchris/wg-mgt/internal/domain"
 	"github.com/slchris/wg-mgt/internal/pkg/ssh"
-	"github.com/slchris/wg-mgt/internal/pkg/wireguard"
 	"github.com/slchris/wg-mgt/internal/repository"
 )
 
@@ -22,20 +21,62 @@ func NewNodeService(nodeRepo *repository.NodeRepository) *NodeService {
 
 // Create creates a new node.
 func (s *NodeService) Create(node *domain.Node) error {
-	// Generate WireGuard keys if not provided
-	if node.PrivateKey == "" || node.PublicKey == "" {
-		privateKey, publicKey, err := wireguard.GenerateKeyPair()
-		if err != nil {
-			return err
-		}
-		node.PrivateKey = privateKey
-		node.PublicKey = publicKey
+	// Set default WG interface if not provided
+	if node.WGInterface == "" {
+		node.WGInterface = "wg0"
 	}
 
 	// Set initial status
 	node.Status = domain.NodeStatusUnknown
 
-	return s.nodeRepo.Create(node)
+	// Create node in database first
+	if err := s.nodeRepo.Create(node); err != nil {
+		return err
+	}
+
+	// Try to fetch WireGuard config via SSH
+	if node.SSHKey != "" {
+		go s.fetchWGConfigAsync(node.ID)
+	}
+
+	return nil
+}
+
+// fetchWGConfigAsync fetches WireGuard configuration asynchronously after node creation.
+func (s *NodeService) fetchWGConfigAsync(nodeID uint) {
+	node, err := s.nodeRepo.GetByID(nodeID)
+	if err != nil {
+		return
+	}
+
+	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+	if err != nil {
+		return
+	}
+
+	// Try to get WireGuard status
+	status, err := client.GetWireGuardStatus(node.WGInterface)
+	if err != nil {
+		// WireGuard might not be configured yet, that's ok
+		return
+	}
+
+	// Update node with discovered WG config
+	now := time.Now()
+	node.Status = domain.NodeStatusOnline
+	node.LastSeen = &now
+
+	if status.Address != "" {
+		node.WGAddress = status.Address
+	}
+	if status.PublicKey != "" {
+		node.PublicKey = status.PublicKey
+	}
+	if status.ListenPort > 0 {
+		node.WGPort = status.ListenPort
+	}
+
+	_ = s.nodeRepo.Update(node)
 }
 
 // GetByID retrieves a node by ID.

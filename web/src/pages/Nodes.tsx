@@ -29,6 +29,7 @@ export default function Nodes() {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const [showAdvanced, setShowAdvanced] = useState(false)
 
   const fetchNodes = async () => {
     try {
@@ -62,6 +63,7 @@ export default function Nodes() {
         wg_port: 51820,
         wg_address: '',
       })
+      setShowAdvanced(false)
       fetchNodes()
     } catch {
       setError('Failed to create node')
@@ -217,26 +219,47 @@ export default function Nodes() {
               required
             />
           </div>
-          <div className="grid grid-cols-2 gap-4">
-            <Input
-              label="WG Interface"
-              value={formData.wg_interface}
-              onChange={(e) => setFormData({ ...formData, wg_interface: e.target.value })}
-            />
-            <Input
-              label="WG Port"
-              type="number"
-              value={formData.wg_port}
-              onChange={(e) => setFormData({ ...formData, wg_port: parseInt(e.target.value) })}
-            />
+
+          <div className="p-3 rounded-apple bg-apple-gray-50 text-apple-gray-400 text-sm">
+            WireGuard 配置（网卡、端口、地址）将在添加节点后自动通过 SSH 获取。如需手动指定，请展开高级选项。
           </div>
-          <Input
-            label="WG Address"
-            value={formData.wg_address}
-            onChange={(e) => setFormData({ ...formData, wg_address: e.target.value })}
-            placeholder="10.0.0.1/24"
-            required
-          />
+
+          <button
+            type="button"
+            className="text-apple-blue text-sm hover:underline"
+            onClick={() => setShowAdvanced(!showAdvanced)}
+          >
+            {showAdvanced ? '收起高级选项' : '展开高级选项'}
+          </button>
+
+          {showAdvanced && (
+            <>
+              <div className="grid grid-cols-2 gap-4">
+                <Input
+                  label="WG Interface"
+                  value={formData.wg_interface}
+                  onChange={(e) => setFormData({ ...formData, wg_interface: e.target.value })}
+                  placeholder="wg0"
+                  helperText="默认: wg0"
+                />
+                <Input
+                  label="WG Port"
+                  type="number"
+                  value={formData.wg_port}
+                  onChange={(e) => setFormData({ ...formData, wg_port: parseInt(e.target.value) || 51820 })}
+                  helperText="默认: 51820"
+                />
+              </div>
+              <Input
+                label="WG Address"
+                value={formData.wg_address}
+                onChange={(e) => setFormData({ ...formData, wg_address: e.target.value })}
+                placeholder="10.0.0.1/24"
+                helperText="留空则自动获取"
+              />
+            </>
+          )}
+
           {error && <div className="p-3 rounded-apple bg-red-50 text-apple-red text-sm">{error}</div>}
         </div>
       </Modal>

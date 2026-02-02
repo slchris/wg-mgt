@@ -9,7 +9,7 @@ export interface CreateNodeInput {
   ssh_key: string
   wg_interface?: string
   wg_port?: number
-  wg_address: string
+  wg_address?: string
   endpoint?: string
   network_id?: number | null
 }
