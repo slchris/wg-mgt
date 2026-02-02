@@ -41,7 +41,7 @@ jobs:
       - name: Run Go linter
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.0.2
+          version: v2.1.6
           args: --config .golangci.yml
 
       - name: Run ESLint
@@ -60,6 +60,9 @@ jobs:
   security-scan:
     name: Security Scan
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
@@ -92,6 +95,9 @@ jobs:
   dependency-check:
     name: Dependency Check
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
     steps:
       - name: Checkout code
         uses: actions/checkout@v6
