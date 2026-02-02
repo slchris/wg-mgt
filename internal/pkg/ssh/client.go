@@ -545,22 +545,22 @@ func (c *Client) PeerExists(interfaceName, publicKey string) (bool, error) {
 
 // InitializeWireGuardResult contains the result of WireGuard initialization
 type InitializeWireGuardResult struct {
-	Installed    bool   `json:"installed"`
-	WasInstalled bool   `json:"was_installed"` // true if we just installed it
-	Configured   bool   `json:"configured"`
-	WasConfigured bool  `json:"was_configured"` // true if we just configured it
-	Interface    string `json:"interface"`
-	Address      string `json:"address"`
-	Port         int    `json:"port"`
-	PublicKey    string `json:"public_key"`
-	PrivateKey   string `json:"private_key"`
-	Message      string `json:"message"`
+	Installed     bool   `json:"installed"`
+	WasInstalled  bool   `json:"was_installed"` // true if we just installed it
+	Configured    bool   `json:"configured"`
+	WasConfigured bool   `json:"was_configured"` // true if we just configured it
+	Interface     string `json:"interface"`
+	Address       string `json:"address"`
+	Port          int    `json:"port"`
+	PublicKey     string `json:"public_key"`
+	PrivateKey    string `json:"private_key"`
+	Message       string `json:"message"`
 }
 
 // InstallWireGuard installs WireGuard on the remote host
 func (c *Client) InstallWireGuard() error {
 	sudo := c.sudoPrefix()
-	
+
 	// Detect package manager and install
 	installCmd := fmt.Sprintf(`
 %scommand -v apt-get >/dev/null 2>&1 && { %sapt-get update && %sapt-get install -y wireguard; exit $?; }
@@ -697,7 +697,7 @@ echo 'net.ipv4.ip_forward = 1' | %stee -a /etc/sysctl.conf
 // SaveWireGuardConfig saves the current WireGuard runtime config to file
 func (c *Client) SaveWireGuardConfig(interfaceName string) error {
 	sudo := c.sudoPrefix()
-	
+
 	// Get current config from wg show
 	showCmd := fmt.Sprintf("%swg showconf %s", sudo, interfaceName)
 	config, err := c.RunCommand(showCmd)

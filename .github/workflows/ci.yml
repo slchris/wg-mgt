@@ -39,9 +39,9 @@ jobs:
         run: cd web && npm ci
 
       - name: Run Go linter
-        uses: golangci/golangci-lint-action@v4
+        uses: golangci/golangci-lint-action@v6
         with:
-          version: latest
+          version: v2.0.2
           args: --config .golangci.yml
 
       - name: Run ESLint
@@ -84,9 +84,7 @@ jobs:
         uses: github/codeql-action/init@v3
         with:
           languages: go, javascript
-
-      - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+          build-mode: autobuild
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
