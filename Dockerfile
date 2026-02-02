@@ -1,5 +1,5 @@
 # Build stage for frontend
-FROM node:20-alpine AS frontend-builder
+FROM node:25-alpine AS frontend-builder
 
 WORKDIR /app/web
 
@@ -17,7 +17,7 @@ RUN mkdir -p ../cmd/wg-mgt/web && npm run build
 
 
 # Build stage for backend
-FROM golang:1.24-alpine AS backend-builder
+FROM golang:1.25-alpine AS backend-builder
 
 WORKDIR /app
 
@@ -44,7 +44,7 @@ RUN CGO_ENABLED=1 GOOS=linux go build -a -ldflags '-linkmode external -extldflag
 
 
 # Final stage - minimal runtime image
-FROM golang:1.24-alpine AS runtime
+FROM golang:1.25-alpine AS runtime
 
 WORKDIR /app
 
