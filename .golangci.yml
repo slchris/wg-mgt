@@ -1,4 +1,4 @@
-version: "2"
+version: 2
 
 run:
   timeout: 5m
@@ -14,7 +14,7 @@ linters:
     - unused
     - misspell
 
-settings:
+linters-settings:
   gocyclo:
     min-complexity: 15
   gosec:
@@ -30,15 +30,3 @@ issues:
         - errcheck
   max-issues-per-linter: 0
   max-same-issues: 0
-
-output:
-  print-issued-lines: true
-  print-linter-name: true
-
-formatters:
-  enable:
-    - gofmt
-    - goimports
-  settings:
-    gofmt:
-      simplify: true
