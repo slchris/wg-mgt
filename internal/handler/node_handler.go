@@ -197,3 +197,58 @@ func (h *NodeHandler) GetSystemInfo(w http.ResponseWriter, r *http.Request) {
 
 	response.Success(w, info)
 }
+
+// InitializeWireGuard initializes WireGuard on a node.
+func (h *NodeHandler) InitializeWireGuard(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		response.BadRequest(w, "invalid id")
+		return
+	}
+
+	var req service.InitializeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		// It's ok if no body is provided, we'll use defaults
+		req = service.InitializeRequest{}
+	}
+
+	result, err := h.nodeService.InitializeWireGuard(uint(id), &req)
+	if err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+
+	response.Success(w, result)
+}
+
+// SaveWireGuardConfig saves the current WireGuard runtime config to file.
+func (h *NodeHandler) SaveWireGuardConfig(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		response.BadRequest(w, "invalid id")
+		return
+	}
+
+	if err := h.nodeService.SaveWireGuardConfig(uint(id)); err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+
+	response.Success(w, map[string]string{"message": "WireGuard config saved successfully"})
+}
+
+// RestartWireGuard restarts the WireGuard interface on a node.
+func (h *NodeHandler) RestartWireGuard(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.ParseUint(chi.URLParam(r, "id"), 10, 32)
+	if err != nil {
+		response.BadRequest(w, "invalid id")
+		return
+	}
+
+	if err := h.nodeService.RestartWireGuard(uint(id)); err != nil {
+		response.InternalError(w, err.Error())
+		return
+	}
+
+	response.Success(w, map[string]string{"message": "WireGuard restarted successfully"})
+}

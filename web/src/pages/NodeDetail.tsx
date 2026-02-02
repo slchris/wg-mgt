@@ -3,7 +3,7 @@ import { useParams, Link } from 'react-router-dom'
 import Card from '../components/ui/Card'
 import Button from '../components/ui/Button'
 import Toast from '../components/ui/Toast'
-import { nodeService, WireGuardStatus, SystemInfo } from '../services/nodes'
+import { nodeService, WireGuardStatus, SystemInfo, InitializeWireGuardResult } from '../services/nodes'
 import type { Node } from '../types'
 
 function formatBytes(bytes: number): string {
@@ -34,6 +34,13 @@ export default function NodeDetail() {
   const [loading, setLoading] = useState(true)
   const [loadingWg, setLoadingWg] = useState(false)
   const [loadingSys, setLoadingSys] = useState(false)
+  const [loadingInit, setLoadingInit] = useState(false)
+  const [loadingSave, setLoadingSave] = useState(false)
+  const [loadingRestart, setLoadingRestart] = useState(false)
+  const [showInitModal, setShowInitModal] = useState(false)
+  const [initAddress, setInitAddress] = useState('10.0.0.1/24')
+  const [initPort, setInitPort] = useState(51820)
+  const [initResult, setInitResult] = useState<InitializeWireGuardResult | null>(null)
   const [toast, setToast] = useState<{ message: string; type: 'success' | 'error' } | null>(null)
 
   const fetchNode = useCallback(async () => {
@@ -73,6 +80,54 @@ export default function NodeDetail() {
       setToast({ message: 'Failed to fetch system info', type: 'error' })
     } finally {
       setLoadingSys(false)
+    }
+  }
+
+  const handleInitialize = async () => {
+    if (!id) return
+    setLoadingInit(true)
+    try {
+      const result = await nodeService.initializeWireGuard(parseInt(id), {
+        address: initAddress,
+        port: initPort,
+      })
+      setInitResult(result)
+      setShowInitModal(false)
+      setToast({ message: result.message, type: 'success' })
+      // Refresh node data
+      fetchNode()
+    } catch {
+      setToast({ message: 'Failed to initialize WireGuard', type: 'error' })
+    } finally {
+      setLoadingInit(false)
+    }
+  }
+
+  const handleSaveConfig = async () => {
+    if (!id) return
+    setLoadingSave(true)
+    try {
+      await nodeService.saveWireGuardConfig(parseInt(id))
+      setToast({ message: 'Config saved to /etc/wireguard/', type: 'success' })
+    } catch {
+      setToast({ message: 'Failed to save config', type: 'error' })
+    } finally {
+      setLoadingSave(false)
+    }
+  }
+
+  const handleRestart = async () => {
+    if (!id) return
+    setLoadingRestart(true)
+    try {
+      await nodeService.restartWireGuard(parseInt(id))
+      setToast({ message: 'WireGuard restarted', type: 'success' })
+      // Refresh status
+      setTimeout(fetchWgStatus, 1000)
+    } catch {
+      setToast({ message: 'Failed to restart WireGuard', type: 'error' })
+    } finally {
+      setLoadingRestart(false)
     }
   }
 
@@ -129,6 +184,11 @@ export default function NodeDetail() {
           <Button onClick={fetchWgStatus} loading={loadingWg}>
             WireGuard Status
           </Button>
+          {(!node.wg_address || !node.public_key) && (
+            <Button variant="primary" onClick={() => setShowInitModal(true)}>
+              Initialize WG
+            </Button>
+          )}
         </div>
       </div>
 
@@ -213,7 +273,17 @@ export default function NodeDetail() {
       {/* WireGuard Status */}
       {wgStatus && (
         <Card>
-          <h2 className="text-lg font-medium text-apple-gray-500 mb-4">WireGuard Status</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-medium text-apple-gray-500">WireGuard Status</h2>
+            <div className="flex space-x-2">
+              <Button size="sm" variant="secondary" onClick={handleSaveConfig} loading={loadingSave}>
+                Save Config
+              </Button>
+              <Button size="sm" variant="secondary" onClick={handleRestart} loading={loadingRestart}>
+                Restart
+              </Button>
+            </div>
+          </div>
           <div className="space-y-6">
             {/* Interface Info */}
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4 pb-4 border-b border-apple-gray-100">
@@ -306,6 +376,102 @@ export default function NodeDetail() {
             <p className="text-apple-gray-400 mb-4">Click "WireGuard Status" or "System Info" to fetch node details via SSH</p>
           </div>
         </Card>
+      )}
+
+      {/* Initialize Result */}
+      {initResult && (
+        <Card>
+          <h2 className="text-lg font-medium text-apple-gray-500 mb-4">Initialization Result</h2>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div>
+              <p className="text-sm text-apple-gray-300">Installed</p>
+              <p className="font-medium text-apple-gray-500">
+                {initResult.was_installed ? (
+                  <span className="text-apple-green">Just Installed</span>
+                ) : initResult.installed ? (
+                  <span className="text-apple-green">Yes</span>
+                ) : (
+                  <span className="text-apple-red">No</span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-apple-gray-300">Configured</p>
+              <p className="font-medium text-apple-gray-500">
+                {initResult.was_configured ? (
+                  <span className="text-apple-green">Just Configured</span>
+                ) : initResult.configured ? (
+                  <span className="text-apple-green">Yes</span>
+                ) : (
+                  <span className="text-apple-red">No</span>
+                )}
+              </p>
+            </div>
+            <div>
+              <p className="text-sm text-apple-gray-300">Interface</p>
+              <p className="font-medium text-apple-gray-500">{initResult.interface}</p>
+            </div>
+            <div>
+              <p className="text-sm text-apple-gray-300">Address</p>
+              <p className="font-medium text-apple-gray-500">{initResult.address}</p>
+            </div>
+            <div>
+              <p className="text-sm text-apple-gray-300">Port</p>
+              <p className="font-medium text-apple-gray-500">{initResult.port}</p>
+            </div>
+            <div className="col-span-2 md:col-span-3">
+              <p className="text-sm text-apple-gray-300">Public Key</p>
+              <p className="font-mono text-xs text-apple-gray-500 break-all">{initResult.public_key}</p>
+            </div>
+          </div>
+          <p className="mt-4 text-sm text-apple-gray-400">{initResult.message}</p>
+        </Card>
+      )}
+
+      {/* Initialize Modal */}
+      {showInitModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-apple-lg p-6 w-full max-w-md shadow-apple">
+            <h2 className="text-lg font-semibold text-apple-gray-500 mb-4">Initialize WireGuard</h2>
+            <p className="text-sm text-apple-gray-400 mb-4">
+              This will install WireGuard (if needed), generate keys, and create the config file.
+            </p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-apple-gray-500 mb-1">
+                  WireGuard Address (CIDR)
+                </label>
+                <input
+                  type="text"
+                  value={initAddress}
+                  onChange={(e) => setInitAddress(e.target.value)}
+                  className="w-full px-3 py-2 border border-apple-gray-200 rounded-apple focus:outline-none focus:ring-2 focus:ring-apple-blue"
+                  placeholder="10.0.0.1/24"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-apple-gray-500 mb-1">
+                  Listen Port
+                </label>
+                <input
+                  type="number"
+                  value={initPort}
+                  onChange={(e) => setInitPort(parseInt(e.target.value))}
+                  className="w-full px-3 py-2 border border-apple-gray-200 rounded-apple focus:outline-none focus:ring-2 focus:ring-apple-blue"
+                  placeholder="51820"
+                />
+              </div>
+            </div>
+            <div className="flex justify-end space-x-3 mt-6">
+              <Button variant="secondary" onClick={() => setShowInitModal(false)}>
+                Cancel
+              </Button>
+              <Button onClick={handleInitialize} loading={loadingInit}>
+                Initialize
+              </Button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (

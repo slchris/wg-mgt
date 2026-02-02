@@ -85,6 +85,9 @@ func New(cfg *Config) *chi.Mux {
 				r.Post("/{id}/check", cfg.NodeHandler.CheckStatus)
 				r.Get("/{id}/wg-status", cfg.NodeHandler.GetWireGuardStatus)
 				r.Get("/{id}/system-info", cfg.NodeHandler.GetSystemInfo)
+				r.Post("/{id}/initialize", cfg.NodeHandler.InitializeWireGuard)
+				r.Post("/{id}/save-config", cfg.NodeHandler.SaveWireGuardConfig)
+				r.Post("/{id}/restart", cfg.NodeHandler.RestartWireGuard)
 				r.Get("/{nodeId}/peers", cfg.PeerHandler.GetByNodeID)
 			})
 

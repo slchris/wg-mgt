@@ -227,3 +227,115 @@ func (s *NodeService) GetNodeSystemInfo(id uint) (map[string]string, error) {
 
 	return info, nil
 }
+
+// InitializeRequest contains the parameters for initializing WireGuard on a node.
+type InitializeRequest struct {
+	Address string `json:"address"`
+	Port    int    `json:"port"`
+}
+
+// InitializeWireGuard initializes WireGuard on a node.
+// This will install WireGuard if needed, generate keys, and create the config file.
+func (s *NodeService) InitializeWireGuard(id uint, req *InitializeRequest) (*ssh.InitializeWireGuardResult, error) {
+	node, err := s.nodeRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSH client: %w", err)
+	}
+
+	// Use defaults if not provided
+	interfaceName := node.WGInterface
+	if interfaceName == "" {
+		interfaceName = "wg0"
+	}
+
+	address := req.Address
+	if address == "" {
+		// Use a default private IP if not provided
+		address = "10.0.0.1/24"
+	}
+
+	port := req.Port
+	if port == 0 {
+		port = 51820
+	}
+
+	// Initialize WireGuard
+	result, err := client.InitializeWireGuard(interfaceName, address, port)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize WireGuard: %w", err)
+	}
+
+	// Update node with the new config
+	now := time.Now()
+	node.Status = domain.NodeStatusOnline
+	node.LastSeen = &now
+	node.WGInterface = interfaceName
+	node.WGAddress = result.Address
+	node.WGPort = result.Port
+	node.PublicKey = result.PublicKey
+
+	if err := s.nodeRepo.Update(node); err != nil {
+		return nil, fmt.Errorf("failed to update node: %w", err)
+	}
+
+	return result, nil
+}
+
+// SaveWireGuardConfig saves the current WireGuard runtime config to file on the node.
+func (s *NodeService) SaveWireGuardConfig(id uint) error {
+	node, err := s.nodeRepo.GetByID(id)
+	if err != nil {
+		return err
+	}
+
+	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+	if err != nil {
+		return fmt.Errorf("failed to create SSH client: %w", err)
+	}
+
+	interfaceName := node.WGInterface
+	if interfaceName == "" {
+		interfaceName = "wg0"
+	}
+
+	if err := client.SaveWireGuardConfig(interfaceName); err != nil {
+		return fmt.Errorf("failed to save WireGuard config: %w", err)
+	}
+
+	return nil
+}
+
+// RestartWireGuard restarts the WireGuard interface on a node.
+func (s *NodeService) RestartWireGuard(id uint) error {
+	node, err := s.nodeRepo.GetByID(id)
+	if err != nil {
+		return err
+	}
+
+	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+	if err != nil {
+		return fmt.Errorf("failed to create SSH client: %w", err)
+	}
+
+	interfaceName := node.WGInterface
+	if interfaceName == "" {
+		interfaceName = "wg0"
+	}
+
+	if err := client.RestartWireGuard(interfaceName); err != nil {
+		return fmt.Errorf("failed to restart WireGuard: %w", err)
+	}
+
+	// Update node status
+	now := time.Now()
+	node.Status = domain.NodeStatusOnline
+	node.LastSeen = &now
+	_ = s.nodeRepo.Update(node)
+
+	return nil
+}

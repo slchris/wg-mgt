@@ -542,3 +542,203 @@ func (c *Client) PeerExists(interfaceName, publicKey string) (bool, error) {
 	}
 	return strings.Contains(output, "EXISTS"), nil
 }
+
+// InitializeWireGuardResult contains the result of WireGuard initialization
+type InitializeWireGuardResult struct {
+	Installed    bool   `json:"installed"`
+	WasInstalled bool   `json:"was_installed"` // true if we just installed it
+	Configured   bool   `json:"configured"`
+	WasConfigured bool  `json:"was_configured"` // true if we just configured it
+	Interface    string `json:"interface"`
+	Address      string `json:"address"`
+	Port         int    `json:"port"`
+	PublicKey    string `json:"public_key"`
+	PrivateKey   string `json:"private_key"`
+	Message      string `json:"message"`
+}
+
+// InstallWireGuard installs WireGuard on the remote host
+func (c *Client) InstallWireGuard() error {
+	sudo := c.sudoPrefix()
+	
+	// Detect package manager and install
+	installCmd := fmt.Sprintf(`
+%scommand -v apt-get >/dev/null 2>&1 && { %sapt-get update && %sapt-get install -y wireguard; exit $?; }
+%scommand -v yum >/dev/null 2>&1 && { %syum install -y epel-release && %syum install -y wireguard-tools; exit $?; }
+%scommand -v dnf >/dev/null 2>&1 && { %sdnf install -y wireguard-tools; exit $?; }
+%scommand -v pacman >/dev/null 2>&1 && { %spacman -Sy --noconfirm wireguard-tools; exit $?; }
+%scommand -v apk >/dev/null 2>&1 && { %sapk add wireguard-tools; exit $?; }
+echo "Unsupported package manager" && exit 1
+`, sudo, sudo, sudo, sudo, sudo, sudo, sudo, sudo, sudo, sudo, sudo, sudo)
+
+	_, err := c.RunCommand(installCmd)
+	return err
+}
+
+// InitializeWireGuard initializes WireGuard on the remote host
+// This includes: installing if needed, generating keys, creating config file, starting service
+func (c *Client) InitializeWireGuard(interfaceName, address string, port int) (*InitializeWireGuardResult, error) {
+	sudo := c.sudoPrefix()
+	result := &InitializeWireGuardResult{
+		Interface: interfaceName,
+		Address:   address,
+		Port:      port,
+	}
+
+	// Check if WireGuard is installed
+	installed, _, err := c.CheckWireGuardInstalled()
+	if err != nil {
+		return nil, fmt.Errorf("failed to check WireGuard installation: %w", err)
+	}
+	result.Installed = installed
+
+	// Install if not installed
+	if !installed {
+		if err := c.InstallWireGuard(); err != nil {
+			return nil, fmt.Errorf("failed to install WireGuard: %w", err)
+		}
+		result.Installed = true
+		result.WasInstalled = true
+	}
+
+	// Check if config already exists
+	confPath := fmt.Sprintf("/etc/wireguard/%s.conf", interfaceName)
+	checkCmd := fmt.Sprintf("%stest -f %s && echo 'EXISTS' || echo 'NOT_EXISTS'", sudo, confPath)
+	output, err := c.RunCommand(checkCmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to check config: %w", err)
+	}
+	configExists := strings.Contains(output, "EXISTS")
+
+	if configExists {
+		// Config exists, just get the info
+		result.Configured = true
+		status, err := c.GetWireGuardStatus(interfaceName)
+		if err == nil && status.IsRunning {
+			result.PublicKey = status.PublicKey
+			result.Address = status.Address
+			result.Port = status.ListenPort
+		} else {
+			// Try to read public key from config
+			pubKeyCmd := fmt.Sprintf("%sgrep -o 'PrivateKey = .*' %s | cut -d' ' -f3 | wg pubkey", sudo, confPath)
+			if pubKey, err := c.RunCommand(pubKeyCmd); err == nil {
+				result.PublicKey = strings.TrimSpace(pubKey)
+			}
+		}
+		result.Message = "WireGuard already configured"
+		return result, nil
+	}
+
+	// Generate keys
+	keyGenCmd := fmt.Sprintf(`
+%smkdir -p /etc/wireguard/keys /etc/wireguard/clients
+PRIVATE_KEY=$(%swg genkey)
+PUBLIC_KEY=$(echo "$PRIVATE_KEY" | %swg pubkey)
+echo "$PRIVATE_KEY" | %stee /etc/wireguard/keys/%s_private.key > /dev/null
+echo "$PUBLIC_KEY" | %stee /etc/wireguard/keys/%s_public.key > /dev/null
+%schmod 600 /etc/wireguard/keys/*
+echo "$PRIVATE_KEY"
+echo "$PUBLIC_KEY"
+`, sudo, sudo, sudo, sudo, interfaceName, sudo, interfaceName, sudo)
+
+	keysOutput, err := c.RunCommand(keyGenCmd)
+	if err != nil {
+		return nil, fmt.Errorf("failed to generate keys: %w", err)
+	}
+
+	keys := strings.Split(strings.TrimSpace(keysOutput), "\n")
+	if len(keys) >= 2 {
+		result.PrivateKey = strings.TrimSpace(keys[0])
+		result.PublicKey = strings.TrimSpace(keys[1])
+	}
+
+	// Create config file
+	configContent := fmt.Sprintf(`[Interface]
+PrivateKey = %s
+Address = %s
+ListenPort = %d
+SaveConfig = false
+`, result.PrivateKey, address, port)
+
+	createConfigCmd := fmt.Sprintf(`%scat > %s << 'WGCONF'
+%sWGCONF
+%schmod 600 %s
+`, sudo, confPath, configContent, sudo, confPath)
+
+	if _, err := c.RunCommand(createConfigCmd); err != nil {
+		return nil, fmt.Errorf("failed to create config: %w", err)
+	}
+
+	// Enable IP forwarding
+	forwardCmd := fmt.Sprintf(`
+%ssed -i '/net.ipv4.ip_forward/d' /etc/sysctl.conf
+echo 'net.ipv4.ip_forward = 1' | %stee -a /etc/sysctl.conf
+%ssysctl -p
+`, sudo, sudo, sudo)
+	c.RunCommand(forwardCmd)
+
+	// Start WireGuard
+	startCmd := fmt.Sprintf(`
+%ssystemctl enable wg-quick@%s 2>/dev/null || true
+%ssystemctl start wg-quick@%s 2>/dev/null || %swg-quick up %s
+`, sudo, interfaceName, sudo, interfaceName, sudo, interfaceName)
+
+	if _, err := c.RunCommand(startCmd); err != nil {
+		return nil, fmt.Errorf("failed to start WireGuard: %w", err)
+	}
+
+	result.Configured = true
+	result.WasConfigured = true
+	result.Message = "WireGuard initialized successfully"
+
+	return result, nil
+}
+
+// SaveWireGuardConfig saves the current WireGuard runtime config to file
+func (c *Client) SaveWireGuardConfig(interfaceName string) error {
+	sudo := c.sudoPrefix()
+	
+	// Get current config from wg show
+	showCmd := fmt.Sprintf("%swg showconf %s", sudo, interfaceName)
+	config, err := c.RunCommand(showCmd)
+	if err != nil {
+		return fmt.Errorf("failed to get current config: %w", err)
+	}
+
+	// Get interface address
+	addrCmd := fmt.Sprintf("%sip -4 addr show %s | grep inet | awk '{print $2}'", sudo, interfaceName)
+	addr, _ := c.RunCommand(addrCmd)
+	addr = strings.TrimSpace(addr)
+
+	// Merge Address into config (wg showconf doesn't include it)
+	if addr != "" && !strings.Contains(config, "Address") {
+		// Insert Address after [Interface]
+		config = strings.Replace(config, "[Interface]\n", fmt.Sprintf("[Interface]\nAddress = %s\n", addr), 1)
+	}
+
+	// Add SaveConfig = false
+	if !strings.Contains(config, "SaveConfig") {
+		config = strings.Replace(config, "[Interface]\n", "[Interface]\nSaveConfig = false\n", 1)
+	}
+
+	// Write to config file
+	confPath := fmt.Sprintf("/etc/wireguard/%s.conf", interfaceName)
+	writeCmd := fmt.Sprintf(`%scat > %s << 'WGCONF'
+%sWGCONF
+%schmod 600 %s
+`, sudo, confPath, config, sudo, confPath)
+
+	if _, err := c.RunCommand(writeCmd); err != nil {
+		return fmt.Errorf("failed to write config: %w", err)
+	}
+
+	return nil
+}
+
+// RestartWireGuard restarts the WireGuard interface
+func (c *Client) RestartWireGuard(interfaceName string) error {
+	sudo := c.sudoPrefix()
+	cmd := fmt.Sprintf(`%swg-quick down %s 2>/dev/null; %swg-quick up %s`, sudo, interfaceName, sudo, interfaceName)
+	_, err := c.RunCommand(cmd)
+	return err
+}

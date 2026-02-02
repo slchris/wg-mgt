@@ -55,6 +55,24 @@ export interface SystemInfo {
   wireguard_version?: string
 }
 
+export interface InitializeWireGuardInput {
+  address?: string
+  port?: number
+}
+
+export interface InitializeWireGuardResult {
+  installed: boolean
+  was_installed: boolean
+  configured: boolean
+  was_configured: boolean
+  interface: string
+  address: string
+  port: number
+  public_key: string
+  private_key?: string
+  message: string
+}
+
 export const nodeService = {
   async list(): Promise<Node[]> {
     const response = await api.get<ApiResponse<Node[]>>('/nodes')
@@ -98,5 +116,20 @@ export const nodeService = {
   async getPeers(nodeId: number): Promise<Peer[]> {
     const response = await api.get<ApiResponse<Peer[]>>(`/nodes/${nodeId}/peers`)
     return response.data.data || []
+  },
+
+  async initializeWireGuard(id: number, input?: InitializeWireGuardInput): Promise<InitializeWireGuardResult> {
+    const response = await api.post<ApiResponse<InitializeWireGuardResult>>(`/nodes/${id}/initialize`, input || {})
+    return response.data.data
+  },
+
+  async saveWireGuardConfig(id: number): Promise<{ message: string }> {
+    const response = await api.post<ApiResponse<{ message: string }>>(`/nodes/${id}/save-config`)
+    return response.data.data
+  },
+
+  async restartWireGuard(id: number): Promise<{ message: string }> {
+    const response = await api.post<ApiResponse<{ message: string }>>(`/nodes/${id}/restart`)
+    return response.data.data
   },
 }
