@@ -84,7 +84,6 @@ jobs:
         uses: github/codeql-action/init@v4
         with:
           languages: go, javascript
-          build-mode: autobuild
 
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v4
