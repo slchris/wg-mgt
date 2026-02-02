@@ -60,7 +60,7 @@ func New(cfg *Config) *chi.Mux {
 					"api_host": cfg.ServerHost,
 				}
 				w.Header().Set("Content-Type", "application/json")
-				json.NewEncoder(w).Encode(map[string]interface{}{
+				_ = json.NewEncoder(w).Encode(map[string]interface{}{
 					"success": true,
 					"data":    config,
 				})
@@ -133,7 +133,7 @@ func New(cfg *Config) *chi.Mux {
 				fileServer.ServeHTTP(w, r)
 				return
 			}
-			f.Close()
+			_ = f.Close()
 
 			fileServer.ServeHTTP(w, r)
 		})

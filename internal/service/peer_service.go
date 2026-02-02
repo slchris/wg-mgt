@@ -294,6 +294,7 @@ func ipToInt(ipStr string) uint32 {
 	var result uint32
 	for _, part := range parts {
 		n, _ := strconv.Atoi(part)
+		// #nosec G115 - IP octets are always 0-255, safe to convert
 		result = result*256 + uint32(n)
 	}
 	return result

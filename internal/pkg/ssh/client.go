@@ -61,13 +61,13 @@ func (c *Client) RunCommand(cmd string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to connect: %w", err)
 	}
-	defer client.Close()
+	defer func() { _ = client.Close() }()
 
 	session, err := client.NewSession()
 	if err != nil {
 		return "", fmt.Errorf("failed to create session: %w", err)
 	}
-	defer session.Close()
+	defer func() { _ = session.Close() }()
 
 	var stdout, stderr bytes.Buffer
 	session.Stdout = &stdout
@@ -139,7 +139,7 @@ func (c *Client) GetWireGuardStatus(interfaceName string) (*WireGuardStatus, err
 		if strings.HasPrefix(line, "public key:") {
 			status.PublicKey = strings.TrimSpace(strings.TrimPrefix(line, "public key:"))
 		} else if strings.HasPrefix(line, "listen port:") {
-			fmt.Sscanf(strings.TrimPrefix(line, "listen port:"), "%d", &status.ListenPort)
+			_, _ = fmt.Sscanf(strings.TrimPrefix(line, "listen port:"), "%d", &status.ListenPort)
 		} else if strings.HasPrefix(line, "peer:") {
 			if currentPeer != nil {
 				status.Peers = append(status.Peers, *currentPeer)
@@ -168,7 +168,7 @@ func (c *Client) GetWireGuardStatus(interfaceName string) (*WireGuardStatus, err
 			} else if strings.HasPrefix(line, "persistent keepalive:") {
 				kaStr := strings.TrimSpace(strings.TrimPrefix(line, "persistent keepalive:"))
 				if kaStr != "off" {
-					fmt.Sscanf(kaStr, "every %d seconds", &currentPeer.PersistentKeepalive)
+					_, _ = fmt.Sscanf(kaStr, "every %d seconds", &currentPeer.PersistentKeepalive)
 				}
 			}
 		}
@@ -203,7 +203,7 @@ func (c *Client) parseTransfer(transferStr string, peer *PeerStatus) {
 func (c *Client) parseSize(sizeStr string) int64 {
 	var value float64
 	var unit string
-	fmt.Sscanf(sizeStr, "%f %s", &value, &unit)
+	_, _ = fmt.Sscanf(sizeStr, "%f %s", &value, &unit)
 
 	multiplier := int64(1)
 	switch {
@@ -465,16 +465,14 @@ BEGIN {skip=0}
 `, sudo, confFile, confFile,
 		sudo, publicKey, confFile, confFile, sudo, confFile, confFile)
 
-	if _, err := c.RunCommand(cleanupCmd); err != nil {
-		// Don't fail if config cleanup fails, peer is already removed dynamically
-		// Log warning would be nice but we don't have logger here
-	}
+	// Don't fail if config cleanup fails, peer is already removed dynamically
+	_, _ = c.RunCommand(cleanupCmd)
 
 	// Remove client config file
 	if peerName != "" {
 		rmFilesCmd := fmt.Sprintf("%srm -f %s/%s.conf %s/%s_private.key %s/%s_public.key %s/%s_psk.key 2>/dev/null || true",
 			sudo, clientsDir, peerName, keysDir, peerName, keysDir, peerName, keysDir, peerName)
-		c.RunCommand(rmFilesCmd)
+		_, _ = c.RunCommand(rmFilesCmd)
 	}
 
 	return nil
@@ -675,7 +673,7 @@ SaveConfig = false
 echo 'net.ipv4.ip_forward = 1' | %stee -a /etc/sysctl.conf
 %ssysctl -p
 `, sudo, sudo, sudo)
-	c.RunCommand(forwardCmd)
+	_, _ = c.RunCommand(forwardCmd)
 
 	// Start WireGuard
 	startCmd := fmt.Sprintf(`
