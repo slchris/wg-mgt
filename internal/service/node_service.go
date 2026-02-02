@@ -1,0 +1,188 @@
+package service
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/slchris/wg-mgt/internal/domain"
+	"github.com/slchris/wg-mgt/internal/pkg/ssh"
+	"github.com/slchris/wg-mgt/internal/pkg/wireguard"
+	"github.com/slchris/wg-mgt/internal/repository"
+)
+
+// NodeService handles node business logic.
+type NodeService struct {
+	nodeRepo *repository.NodeRepository
+}
+
+// NewNodeService creates a new NodeService.
+func NewNodeService(nodeRepo *repository.NodeRepository) *NodeService {
+	return &NodeService{nodeRepo: nodeRepo}
+}
+
+// Create creates a new node.
+func (s *NodeService) Create(node *domain.Node) error {
+	// Generate WireGuard keys if not provided
+	if node.PrivateKey == "" || node.PublicKey == "" {
+		privateKey, publicKey, err := wireguard.GenerateKeyPair()
+		if err != nil {
+			return err
+		}
+		node.PrivateKey = privateKey
+		node.PublicKey = publicKey
+	}
+
+	// Set initial status
+	node.Status = domain.NodeStatusUnknown
+
+	return s.nodeRepo.Create(node)
+}
+
+// GetByID retrieves a node by ID.
+func (s *NodeService) GetByID(id uint) (*domain.Node, error) {
+	return s.nodeRepo.GetByID(id)
+}
+
+// GetAll retrieves all nodes.
+func (s *NodeService) GetAll() ([]domain.Node, error) {
+	return s.nodeRepo.GetAll()
+}
+
+// Update updates a node.
+func (s *NodeService) Update(node *domain.Node) error {
+	return s.nodeRepo.Update(node)
+}
+
+// Delete deletes a node.
+func (s *NodeService) Delete(id uint) error {
+	return s.nodeRepo.Delete(id)
+}
+
+// GetWithPeers retrieves a node with its peers.
+func (s *NodeService) GetWithPeers(id uint) (*domain.Node, error) {
+	return s.nodeRepo.GetWithPeers(id)
+}
+
+// CheckStatus checks the connectivity status of a node via SSH and retrieves WireGuard info.
+func (s *NodeService) CheckStatus(id uint) (*domain.Node, error) {
+	node, err := s.nodeRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	now := time.Now()
+
+	// Try to connect via SSH and get WireGuard status
+	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+	if err != nil {
+		// SSH key parse failed, mark as offline
+		node.Status = domain.NodeStatusOffline
+		_ = s.nodeRepo.Update(node)
+		return node, fmt.Errorf("failed to create SSH client: %w", err)
+	}
+
+	// Try to get WireGuard status - this actually connects via SSH
+	status, err := client.GetWireGuardStatus(node.WGInterface)
+	if err != nil {
+		// SSH connection or command failed
+		node.Status = domain.NodeStatusOffline
+		_ = s.nodeRepo.Update(node)
+		return node, fmt.Errorf("failed to get WireGuard status: %w", err)
+	}
+
+	// Update node with WireGuard info
+	node.Status = domain.NodeStatusOnline
+	node.LastSeen = &now
+
+	if status.Address != "" {
+		node.WGAddress = status.Address
+	}
+	if status.PublicKey != "" {
+		node.PublicKey = status.PublicKey
+	}
+	if status.ListenPort > 0 {
+		node.WGPort = status.ListenPort
+	}
+
+	// Update node in database
+	if updateErr := s.nodeRepo.Update(node); updateErr != nil {
+		return nil, updateErr
+	}
+
+	return node, nil
+}
+
+// GetSSHClient creates an SSH client for a node.
+func (s *NodeService) GetSSHClient(id uint) (*ssh.Client, error) {
+	node, err := s.nodeRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	return ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+}
+
+// GetWireGuardStatus retrieves WireGuard status from a node via SSH.
+func (s *NodeService) GetWireGuardStatus(id uint) (*ssh.WireGuardStatus, error) {
+	node, err := s.nodeRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSH client: %w", err)
+	}
+
+	status, err := client.GetWireGuardStatus(node.WGInterface)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get WireGuard status: %w", err)
+	}
+
+	// Update node status and WG info based on SSH response
+	now := time.Now()
+	node.Status = domain.NodeStatusOnline
+	node.LastSeen = &now
+
+	// Update WG address and public key if retrieved from remote
+	if status.Address != "" && node.WGAddress != status.Address {
+		node.WGAddress = status.Address
+	}
+	if status.PublicKey != "" && node.PublicKey != status.PublicKey {
+		node.PublicKey = status.PublicKey
+	}
+	if status.ListenPort > 0 && node.WGPort != status.ListenPort {
+		node.WGPort = status.ListenPort
+	}
+
+	_ = s.nodeRepo.Update(node)
+
+	return status, nil
+}
+
+// GetNodeSystemInfo retrieves system information from a node via SSH.
+func (s *NodeService) GetNodeSystemInfo(id uint) (map[string]string, error) {
+	node, err := s.nodeRepo.GetByID(id)
+	if err != nil {
+		return nil, err
+	}
+
+	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SSH client: %w", err)
+	}
+
+	info, err := client.GetSystemInfo()
+	if err != nil {
+		return nil, fmt.Errorf("failed to get system info: %w", err)
+	}
+
+	// Check WireGuard installation
+	installed, version, _ := client.CheckWireGuardInstalled()
+	info["wireguard_installed"] = fmt.Sprintf("%v", installed)
+	if version != "" {
+		info["wireguard_version"] = version
+	}
+
+	return info, nil
+}

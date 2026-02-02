@@ -1,0 +1,67 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+build/
+bin/
+
+# Go
+*.test
+*.out
+go.work
+go.work.sum
+
+# Database
+*.db
+*.db-journal
+*.sqlite
+*.sqlite3
+
+# Config files with secrets
+configs/*.yaml
+configs/*.yml
+!configs/*.example.yaml
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+logs/
+
+# Frontend - Node
+web/node_modules/
+web/dist/
+web/.vite/
+web/*.local
+
+# Frontend - Build output
+cmd/wg-mgt/web/
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+*.cover
+*.coverage
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# Security scan reports
+gosec-report.json

@@ -1,0 +1,15 @@
+server:
+  host: "127.0.0.1"
+  port: 8080
+
+database:
+  path: "./data/wg-mgt.db"
+
+jwt:
+  secret: "change-this-to-a-secure-random-string"
+  expiry_hours: 24
+
+wireguard:
+  config_dir: "/etc/wireguard"
+  default_port: 51820
+  default_interface: "wg0"

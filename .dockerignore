@@ -1,0 +1,41 @@
+# Git
+.git
+.gitignore
+
+# Build artifacts
+bin/
+build/
+*.exe
+wg-mgt
+wg-mgt.db
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Node modules (will be installed in Docker)
+web/node_modules/
+
+# Test files
+*_test.go
+coverage.out
+gosec-report.json
+
+# Local configs
+*.local
+.env
+.env.*
+
+# Documentation
+*.md
+!readme.md
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temporary files
+*.tmp
+*.log
