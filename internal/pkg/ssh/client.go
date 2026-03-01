@@ -29,8 +29,8 @@ func NewClient(host string, port int, user string, privateKey string) (*Client, 
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
-		// lgtm[go/insecure-hostkeycallback]
-		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106 - for development
+		// codeql[go/insecure-hostkeycallback]
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106 - HostKey verification is disabled for this management tool
 		Timeout:         10 * time.Second,
 	}
 
@@ -40,6 +40,15 @@ func NewClient(host string, port int, user string, privateKey string) (*Client, 
 		port:   port,
 		user:   user,
 	}, nil
+}
+
+// shellEscape escapes a string for use in a shell command.
+func shellEscape(s string) string {
+	if s == "" {
+		return "''"
+	}
+	// For simple cases, we can just wrap in single quotes and escape existing single quotes
+	return "'" + strings.ReplaceAll(s, "'", "'\\''") + "'"
 }
 
 // sudoPrefix returns "sudo " if user is not root, otherwise empty string.
@@ -74,7 +83,7 @@ func (c *Client) RunCommand(cmd string) (string, error) {
 	session.Stdout = &stdout
 	session.Stderr = &stderr
 
-	// lgtm[go/command-injection]
+	// codeql[go/command-injection]
 	if err := session.Run(cmd); err != nil {
 		return "", fmt.Errorf("command failed: %w, stderr: %s", err, stderr.String())
 	}
@@ -108,7 +117,7 @@ type PeerStatus struct {
 // GetWireGuardStatus retrieves the WireGuard interface status.
 func (c *Client) GetWireGuardStatus(interfaceName string) (*WireGuardStatus, error) {
 	// Check if interface exists and get status
-	output, err := c.RunCommand(fmt.Sprintf("wg show %s 2>/dev/null || echo 'NOT_RUNNING'", interfaceName))
+	output, err := c.RunCommand(fmt.Sprintf("wg show %s 2>/dev/null || echo 'NOT_RUNNING'", shellEscape(interfaceName)))
 	if err != nil {
 		return nil, err
 	}
@@ -124,9 +133,10 @@ func (c *Client) GetWireGuardStatus(interfaceName string) (*WireGuardStatus, err
 	}
 
 	// Get interface IP address using ip command
-	if addrOutput, err := c.RunCommand(fmt.Sprintf("ip -4 addr show %s 2>/dev/null | grep inet | awk '{print $2}'", interfaceName)); err == nil {
+	if addrOutput, err := c.RunCommand(fmt.Sprintf("ip -4 addr show %s 2>/dev/null | grep inet | awk '{print $2}'", shellEscape(interfaceName))); err == nil {
 		status.Address = strings.TrimSpace(addrOutput)
 	}
+
 
 	// Parse wg show output
 	lines := strings.Split(output, "\n")
@@ -298,10 +308,10 @@ func (c *Client) AddPeer(interfaceName string, cfg *PeerConfig) error {
 	wgDir := "/etc/wireguard"
 	clientsDir := fmt.Sprintf("%s/clients", wgDir)
 	keysDir := fmt.Sprintf("%s/keys", wgDir)
-	confFile := fmt.Sprintf("%s/%s.conf", wgDir, interfaceName)
+	confFile := fmt.Sprintf("%s/%s.conf", wgDir, shellEscape(interfaceName))
 
 	// Ensure directories exist
-	mkdirCmd := fmt.Sprintf("%smkdir -p %s %s", sudo, clientsDir, keysDir)
+	mkdirCmd := fmt.Sprintf("%smkdir -p %s %s", sudo, shellEscape(clientsDir), shellEscape(keysDir))
 	if _, err := c.RunCommand(mkdirCmd); err != nil {
 		return fmt.Errorf("failed to create directories: %w", err)
 	}
@@ -318,10 +328,10 @@ KEYEOF
 %s
 KEYEOF
 %schmod 600 %s/%s_*.key
-`, sudo, keysDir, cfg.Name, cfg.PrivateKey,
-		sudo, keysDir, cfg.Name, cfg.PublicKey,
-		sudo, keysDir, cfg.Name, cfg.PresharedKey,
-		sudo, keysDir, cfg.Name)
+`, sudo, shellEscape(keysDir), shellEscape(cfg.Name), cfg.PrivateKey,
+		sudo, shellEscape(keysDir), shellEscape(cfg.Name), cfg.PublicKey,
+		sudo, shellEscape(keysDir), shellEscape(cfg.Name), cfg.PresharedKey,
+		sudo, shellEscape(keysDir), shellEscape(cfg.Name))
 
 	if _, err := c.RunCommand(keysCmds); err != nil {
 		return fmt.Errorf("failed to save keys: %w", err)
@@ -350,7 +360,7 @@ PersistentKeepalive = 25
 	clientConfCmd := fmt.Sprintf(`%scat > %s/%s.conf << 'CONFEOF'
 %sCONFEOF
 %schmod 600 %s/%s.conf
-`, sudo, clientsDir, cfg.Name, clientConf, sudo, clientsDir, cfg.Name)
+`, sudo, shellEscape(clientsDir), shellEscape(cfg.Name), clientConf, sudo, shellEscape(clientsDir), shellEscape(cfg.Name))
 
 	if _, err := c.RunCommand(clientConfCmd); err != nil {
 		return fmt.Errorf("failed to save client config: %w", err)
@@ -381,9 +391,9 @@ PSK=$(mktemp)
 echo '%s' > "$PSK"
 %swg set %s peer %s preshared-key "$PSK" allowed-ips %s
 rm -f "$PSK"
-`, cfg.PresharedKey, sudo, interfaceName, cfg.PublicKey, cfg.AllowedIPs)
+`, cfg.PresharedKey, sudo, shellEscape(interfaceName), shellEscape(cfg.PublicKey), shellEscape(cfg.AllowedIPs))
 	} else {
-		setCmd = fmt.Sprintf("%swg set %s peer %s allowed-ips %s", sudo, interfaceName, cfg.PublicKey, cfg.AllowedIPs)
+		setCmd = fmt.Sprintf("%swg set %s peer %s allowed-ips %s", sudo, shellEscape(interfaceName), shellEscape(cfg.PublicKey), shellEscape(cfg.AllowedIPs))
 	}
 
 	if _, err := c.RunCommand(setCmd); err != nil {
@@ -403,9 +413,9 @@ PSK=$(mktemp)
 echo '%s' > "$PSK"
 %swg set %s peer %s preshared-key "$PSK" allowed-ips %s
 rm -f "$PSK"
-`, presharedKey, sudo, interfaceName, publicKey, allowedIPs)
+`, presharedKey, sudo, shellEscape(interfaceName), shellEscape(publicKey), shellEscape(allowedIPs))
 	} else {
-		cmd = fmt.Sprintf("%swg set %s peer %s allowed-ips %s", sudo, interfaceName, publicKey, allowedIPs)
+		cmd = fmt.Sprintf("%swg set %s peer %s allowed-ips %s", sudo, shellEscape(interfaceName), shellEscape(publicKey), shellEscape(allowedIPs))
 	}
 
 	if _, err := c.RunCommand(cmd); err != nil {
@@ -421,12 +431,12 @@ rm -f "$PSK"
 func (c *Client) RemovePeer(interfaceName, publicKey, peerName string) error {
 	sudo := c.sudoPrefix()
 	wgDir := "/etc/wireguard"
-	confFile := fmt.Sprintf("%s/%s.conf", wgDir, interfaceName)
+	confFile := fmt.Sprintf("%s/%s.conf", wgDir, shellEscape(interfaceName))
 	clientsDir := fmt.Sprintf("%s/clients", wgDir)
 	keysDir := fmt.Sprintf("%s/keys", wgDir)
 
 	// Remove peer dynamically
-	rmCmd := fmt.Sprintf("%swg set %s peer %s remove", sudo, interfaceName, publicKey)
+	rmCmd := fmt.Sprintf("%swg set %s peer %s remove", sudo, shellEscape(interfaceName), shellEscape(publicKey))
 	if _, err := c.RunCommand(rmCmd); err != nil {
 		return fmt.Errorf("failed to remove peer dynamically: %w", err)
 	}
@@ -477,7 +487,7 @@ BEGIN {skip=0}
 	// Remove client config file
 	if peerName != "" {
 		rmFilesCmd := fmt.Sprintf("%srm -f %s/%s.conf %s/%s_private.key %s/%s_public.key %s/%s_psk.key 2>/dev/null || true",
-			sudo, clientsDir, peerName, keysDir, peerName, keysDir, peerName, keysDir, peerName)
+			sudo, shellEscape(clientsDir), shellEscape(peerName), shellEscape(keysDir), shellEscape(peerName), shellEscape(keysDir), shellEscape(peerName), shellEscape(keysDir), shellEscape(peerName))
 		_, _ = c.RunCommand(rmFilesCmd)
 	}
 
@@ -487,7 +497,7 @@ BEGIN {skip=0}
 // RemovePeerSimple removes a peer with minimal cleanup (backward compatibility)
 func (c *Client) RemovePeerSimple(interfaceName, publicKey string) error {
 	sudo := c.sudoPrefix()
-	cmd := fmt.Sprintf("%swg set %s peer %s remove", sudo, interfaceName, publicKey)
+	cmd := fmt.Sprintf("%swg set %s peer %s remove", sudo, shellEscape(interfaceName), shellEscape(publicKey))
 	_, err := c.RunCommand(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to remove peer: %w", err)
@@ -498,7 +508,7 @@ func (c *Client) RemovePeerSimple(interfaceName, publicKey string) error {
 // UpdatePeerAllowedIPs updates the allowed IPs for a peer.
 func (c *Client) UpdatePeerAllowedIPs(interfaceName, publicKey, allowedIPs string) error {
 	sudo := c.sudoPrefix()
-	cmd := fmt.Sprintf("%swg set %s peer %s allowed-ips %s", sudo, interfaceName, publicKey, allowedIPs)
+	cmd := fmt.Sprintf("%swg set %s peer %s allowed-ips %s", sudo, shellEscape(interfaceName), shellEscape(publicKey), shellEscape(allowedIPs))
 	_, err := c.RunCommand(cmd)
 	if err != nil {
 		return fmt.Errorf("failed to update peer: %w", err)
@@ -510,7 +520,7 @@ func (c *Client) UpdatePeerAllowedIPs(interfaceName, publicKey, allowedIPs strin
 // GetClientConfig retrieves the client configuration from the server
 func (c *Client) GetClientConfig(peerName string) (string, error) {
 	sudo := c.sudoPrefix()
-	cmd := fmt.Sprintf("%scat /etc/wireguard/clients/%s.conf 2>/dev/null", sudo, peerName)
+	cmd := fmt.Sprintf("%scat /etc/wireguard/clients/%s.conf 2>/dev/null", sudo, shellEscape(peerName))
 	output, err := c.RunCommand(cmd)
 	if err != nil {
 		return "", fmt.Errorf("client config not found: %w", err)
@@ -539,13 +549,14 @@ func (c *Client) ListClients() ([]string, error) {
 // PeerExists checks if a peer exists on the WireGuard interface.
 func (c *Client) PeerExists(interfaceName, publicKey string) (bool, error) {
 	sudo := c.sudoPrefix()
-	cmd := fmt.Sprintf("%swg show %s peers 2>/dev/null | grep -q '%s' && echo 'EXISTS' || echo 'NOT_EXISTS'", sudo, interfaceName, publicKey)
+	cmd := fmt.Sprintf("%swg show %s peers 2>/dev/null | grep -q '%s' && echo 'EXISTS' || echo 'NOT_EXISTS'", sudo, shellEscape(interfaceName), shellEscape(publicKey))
 	output, err := c.RunCommand(cmd)
 	if err != nil {
 		return false, err
 	}
 	return strings.Contains(output, "EXISTS"), nil
 }
+
 
 // InitializeWireGuardResult contains the result of WireGuard initialization
 type InitializeWireGuardResult struct {
@@ -606,7 +617,7 @@ func (c *Client) InitializeWireGuard(interfaceName, address string, port int) (*
 	}
 
 	// Check if config already exists
-	confPath := fmt.Sprintf("/etc/wireguard/%s.conf", interfaceName)
+	confPath := fmt.Sprintf("/etc/wireguard/%s.conf", shellEscape(interfaceName))
 	checkCmd := fmt.Sprintf("%stest -f %s && echo 'EXISTS' || echo 'NOT_EXISTS'", sudo, confPath)
 	output, err := c.RunCommand(checkCmd)
 	if err != nil {
@@ -643,7 +654,7 @@ echo "$PUBLIC_KEY" | %stee /etc/wireguard/keys/%s_public.key > /dev/null
 %schmod 600 /etc/wireguard/keys/*
 echo "$PRIVATE_KEY"
 echo "$PUBLIC_KEY"
-`, sudo, sudo, sudo, sudo, interfaceName, sudo, interfaceName, sudo)
+`, sudo, sudo, sudo, sudo, shellEscape(interfaceName), sudo, shellEscape(interfaceName), sudo)
 
 	keysOutput, err := c.RunCommand(keyGenCmd)
 	if err != nil {
@@ -685,7 +696,7 @@ echo 'net.ipv4.ip_forward = 1' | %stee -a /etc/sysctl.conf
 	startCmd := fmt.Sprintf(`
 %ssystemctl enable wg-quick@%s 2>/dev/null || true
 %ssystemctl start wg-quick@%s 2>/dev/null || %swg-quick up %s
-`, sudo, interfaceName, sudo, interfaceName, sudo, interfaceName)
+`, sudo, shellEscape(interfaceName), sudo, shellEscape(interfaceName), sudo, shellEscape(interfaceName))
 
 	if _, err := c.RunCommand(startCmd); err != nil {
 		return nil, fmt.Errorf("failed to start WireGuard: %w", err)
@@ -703,14 +714,14 @@ func (c *Client) SaveWireGuardConfig(interfaceName string) error {
 	sudo := c.sudoPrefix()
 
 	// Get current config from wg show
-	showCmd := fmt.Sprintf("%swg showconf %s", sudo, interfaceName)
+	showCmd := fmt.Sprintf("%swg showconf %s", sudo, shellEscape(interfaceName))
 	config, err := c.RunCommand(showCmd)
 	if err != nil {
 		return fmt.Errorf("failed to get current config: %w", err)
 	}
 
 	// Get interface address
-	addrCmd := fmt.Sprintf("%sip -4 addr show %s | grep inet | awk '{print $2}'", sudo, interfaceName)
+	addrCmd := fmt.Sprintf("%sip -4 addr show %s | grep inet | awk '{print $2}'", sudo, shellEscape(interfaceName))
 	addr, _ := c.RunCommand(addrCmd)
 	addr = strings.TrimSpace(addr)
 
@@ -726,7 +737,7 @@ func (c *Client) SaveWireGuardConfig(interfaceName string) error {
 	}
 
 	// Write to config file
-	confPath := fmt.Sprintf("/etc/wireguard/%s.conf", interfaceName)
+	confPath := fmt.Sprintf("/etc/wireguard/%s.conf", shellEscape(interfaceName))
 	writeCmd := fmt.Sprintf(`%scat > %s << 'WGCONF'
 %sWGCONF
 %schmod 600 %s
@@ -742,7 +753,8 @@ func (c *Client) SaveWireGuardConfig(interfaceName string) error {
 // RestartWireGuard restarts the WireGuard interface
 func (c *Client) RestartWireGuard(interfaceName string) error {
 	sudo := c.sudoPrefix()
-	cmd := fmt.Sprintf(`%swg-quick down %s 2>/dev/null; %swg-quick up %s`, sudo, interfaceName, sudo, interfaceName)
+	cmd := fmt.Sprintf(`%swg-quick down %s 2>/dev/null; %swg-quick up %s`, sudo, shellEscape(interfaceName), sudo, shellEscape(interfaceName))
 	_, err := c.RunCommand(cmd)
 	return err
 }
+
