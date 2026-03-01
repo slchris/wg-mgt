@@ -149,28 +149,7 @@ func (c *Client) GetWireGuardStatus(interfaceName string) (*WireGuardStatus, err
 				AllowedIPs: []string{},
 			}
 		} else if currentPeer != nil {
-			if strings.HasPrefix(line, "endpoint:") {
-				currentPeer.Endpoint = strings.TrimSpace(strings.TrimPrefix(line, "endpoint:"))
-			} else if strings.HasPrefix(line, "allowed ips:") {
-				ips := strings.TrimSpace(strings.TrimPrefix(line, "allowed ips:"))
-				currentPeer.AllowedIPs = strings.Split(ips, ", ")
-			} else if strings.HasPrefix(line, "latest handshake:") {
-				// Parse handshake time (e.g., "1 minute, 30 seconds ago")
-				// For simplicity, we'll just mark it as recent if present
-				hsStr := strings.TrimSpace(strings.TrimPrefix(line, "latest handshake:"))
-				if hsStr != "(none)" {
-					currentPeer.LatestHandshake = time.Now() // Simplified
-				}
-			} else if strings.HasPrefix(line, "transfer:") {
-				// Parse transfer (e.g., "1.23 MiB received, 4.56 MiB sent")
-				transferStr := strings.TrimPrefix(line, "transfer:")
-				c.parseTransfer(transferStr, currentPeer)
-			} else if strings.HasPrefix(line, "persistent keepalive:") {
-				kaStr := strings.TrimSpace(strings.TrimPrefix(line, "persistent keepalive:"))
-				if kaStr != "off" {
-					_, _ = fmt.Sscanf(kaStr, "every %d seconds", &currentPeer.PersistentKeepalive)
-				}
-			}
+			c.parseWgPeerLine(line, currentPeer)
 		}
 	}
 
@@ -187,6 +166,31 @@ func (c *Client) GetWireGuardStatus(interfaceName string) (*WireGuardStatus, err
 	return status, nil
 }
 
+// parseWgPeerLine parses a line containing peer information.
+func (c *Client) parseWgPeerLine(line string, peer *PeerStatus) {
+	if strings.HasPrefix(line, "endpoint:") {
+		peer.Endpoint = strings.TrimSpace(strings.TrimPrefix(line, "endpoint:"))
+	} else if strings.HasPrefix(line, "allowed ips:") {
+		ips := strings.TrimSpace(strings.TrimPrefix(line, "allowed ips:"))
+		peer.AllowedIPs = strings.Split(ips, ", ")
+	} else if strings.HasPrefix(line, "latest handshake:") {
+		// Parse handshake time (e.g., "1 minute, 30 seconds ago")
+		// For simplicity, we'll just mark it as recent if present
+		hsStr := strings.TrimSpace(strings.TrimPrefix(line, "latest handshake:"))
+		if hsStr != "(none)" {
+			peer.LatestHandshake = time.Now() // Simplified
+		}
+	} else if strings.HasPrefix(line, "transfer:") {
+		// Parse transfer (e.g., "1.23 MiB received, 4.56 MiB sent")
+		transferStr := strings.TrimPrefix(line, "transfer:")
+		c.parseTransfer(transferStr, peer)
+	} else if strings.HasPrefix(line, "persistent keepalive:") {
+		kaStr := strings.TrimSpace(strings.TrimPrefix(line, "persistent keepalive:"))
+		if kaStr != "off" {
+			_, _ = fmt.Sscanf(kaStr, "every %d seconds", &peer.PersistentKeepalive)
+		}
+	}
+}
 func (c *Client) parseTransfer(transferStr string, peer *PeerStatus) {
 	// Parse "1.23 MiB received, 4.56 MiB sent" or similar
 	parts := strings.Split(transferStr, ",")
