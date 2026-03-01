@@ -293,7 +293,10 @@ func ipToInt(ipStr string) uint32 {
 	}
 	var result uint32
 	for _, part := range parts {
-		n, _ := strconv.Atoi(part)
+		n, err := strconv.Atoi(part)
+		if err != nil || n < 0 || n > 255 {
+			return 0
+		}
 		// #nosec G115 - IP octets are always 0-255, safe to convert
 		result = result*256 + uint32(n)
 	}
@@ -312,7 +315,7 @@ func (s *PeerService) syncPeerToServer(peer *domain.Peer) error {
 		return fmt.Errorf("node has no SSH key configured")
 	}
 
-	log.Printf("Syncing peer %s (pubkey: %s) to node %s (%s)", peer.Name, peer.PublicKey, node.Name, node.Host)
+	log.Printf("Syncing peer %q (pubkey: %q) to node %q (%q)", peer.Name, peer.PublicKey, node.Name, node.Host)
 
 	client, err := ssh.NewClient(node.Host, node.SSHPort, node.SSHUser, node.SSHKey)
 	if err != nil {
@@ -360,13 +363,13 @@ func (s *PeerService) syncPeerToServer(peer *domain.Peer) error {
 		ServerPubKey: node.PublicKey,
 	}
 
-	log.Printf("Adding peer with allowed-ips: %s", serverAllowedIPs)
+	log.Printf("Adding peer with allowed-ips: %q", serverAllowedIPs)
 
 	if err := client.AddPeer(node.WGInterface, cfg); err != nil {
 		return fmt.Errorf("failed to add peer to WireGuard: %w", err)
 	}
 
-	log.Printf("Successfully synced peer %s to node %s", peer.Name, node.Name)
+	log.Printf("Successfully synced peer %q to node %q", peer.Name, node.Name)
 	return nil
 }
 
@@ -391,7 +394,7 @@ func (s *PeerService) removePeerFromServer(peer *domain.Peer) error {
 		return fmt.Errorf("failed to remove peer from WireGuard: %w", err)
 	}
 
-	log.Printf("Successfully removed peer %s from node %s", peer.Name, node.Name)
+	log.Printf("Successfully removed peer %q from node %q", peer.Name, node.Name)
 	return nil
 }
 
@@ -406,7 +409,7 @@ func (s *PeerService) SyncAllPeersToServer(nodeID uint) error {
 	for _, peer := range peers {
 		if peer.Enabled {
 			if err := s.syncPeerToServer(&peer); err != nil {
-				log.Printf("Failed to sync peer %s: %v", peer.Name, err)
+				log.Printf("Failed to sync peer %q: %v", peer.Name, err)
 				lastErr = err
 			}
 		}

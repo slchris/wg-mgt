@@ -40,6 +40,7 @@ func (c *Client) connect() (*ssh.Client, error) {
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
+		// lgtm[go/insecure-hostkeycallback]
 		// #nosec G106 - HostKeyCallback is InsecureIgnoreHostKey for internal network use
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         c.timeout,

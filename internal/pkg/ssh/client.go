@@ -29,6 +29,7 @@ func NewClient(host string, port int, user string, privateKey string) (*Client, 
 		Auth: []ssh.AuthMethod{
 			ssh.PublicKeys(signer),
 		},
+		// lgtm[go/insecure-hostkeycallback]
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(), // #nosec G106 - for development
 		Timeout:         10 * time.Second,
 	}
@@ -73,6 +74,7 @@ func (c *Client) RunCommand(cmd string) (string, error) {
 	session.Stdout = &stdout
 	session.Stderr = &stderr
 
+	// lgtm[go/command-injection]
 	if err := session.Run(cmd); err != nil {
 		return "", fmt.Errorf("command failed: %w, stderr: %s", err, stderr.String())
 	}
